@@ -1,0 +1,52 @@
+<!doctype html><html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#17212b"><title>Ruta Vending</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f7;color:#17212b;font-family:system-ui,sans-serif}.app{max-width:650px;margin:auto;padding:12px}
+.top,.card{border-radius:16px;padding:14px;margin:10px 0}.top{background:#17212b;color:#fff}.top h1{margin:0}.card{background:#fff;box-shadow:0 2px 10px #0001}
+input,textarea,button{font:inherit}input,textarea{width:100%;padding:10px;border:1px solid #d5dce1;border-radius:10px;margin:4px 0}textarea{min-height:60px}
+button{border:0;border-radius:10px;padding:10px 12px;font-weight:700;background:#17212b;color:#fff}.green{background:#15865a}.gray{background:#e9eef2;color:#17212b}.red{background:#fff0f0;color:#a52d2d}
+.row{display:flex;gap:7px}.row>*{flex:1}.actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.actions button:first-child{grid-column:1/-1}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.stat{text-align:center;background:#f5f7f8;padding:9px;border-radius:10px}.stat b{display:block;font-size:20px}.tiny{font-size:11px;color:#687681}
+.place{border:1px solid #e0e6ea;border-radius:13px;padding:10px;margin:8px 0}.topline{display:flex;gap:9px}.check{width:23px}.name{font-weight:800}.addr{font-size:13px;color:#5f6d77}.time{display:inline-block;margin-top:5px;padding:4px 7px;border-radius:7px;background:#eef7f3;color:#13734d;font-size:12px}.btns{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}.btns button{font-size:12px;padding:7px 9px}.edit{display:none}.edit.open{display:block}
+.next{border:2px solid #15865a;background:#f3fbf7;border-radius:13px;padding:12px}.next h2{margin:3px 0}.status{display:none;padding:9px;border-radius:9px}.status.show{display:block;background:#eaf8f1;color:#13734d}.status.err{background:#fff0f0;color:#a52d2d}
+.route{padding:8px 0;border-bottom:1px solid #eee}.num{display:inline-grid;width:28px;height:28px;place-items:center;border-radius:50%;background:#17212b;color:#fff;margin-right:7px}
+</style></head><body><main class="app">
+<header class="top"><h1>🚚 Ruta Vending</h1><div class="tiny" style="color:#ccd5db">Máquinas, horarios y ruta diaria</div></header>
+<div id="status" class="status"></div>
+<section class="card"><label>📍 Punto de salida / base</label><input id="start" placeholder="Ej.: Mairena del Alcor, Sevilla">
+<div class="actions"><button class="green" onclick="organize()">🧠 Organizar ruta de hoy</button><button class="gray" onclick="openRoute()">🗺️ Ruta completa</button><button class="gray" onclick="clearChecks()">Desmarcar todas</button></div></section>
+<section class="card"><div class="stats"><div class="stat"><b id="total">0</b><span class="tiny">seleccionadas</span></div><div class="stat"><b id="done">0</b><span class="tiny">realizadas</span></div><div class="stat"><b id="pending">0</b><span class="tiny">pendientes</span></div></div></section>
+<section id="nextCard" class="card" style="display:none"><div class="next"><div class="tiny">SIGUIENTE PARADA</div><h2 id="nextName"></h2><div id="nextAddr" class="tiny"></div><span id="nextTime" class="time"></span><div class="row" style="margin-top:8px"><button class="green" onclick="navigateNext()">🧭 Ir allí</button><button class="gray" onclick="finishNext()">✅ Terminada</button></div></div></section>
+<section class="card"><div class="row" style="align-items:center"><div><b>Mis máquinas</b><div class="tiny">Guardadas en la nube.</div></div><button class="green" onclick="add()">＋ Añadir</button></div><div id="places">Cargando...</div></section>
+<section id="routeCard" class="card" style="display:none"><b>📍 Recorrido de hoy</b><div class="tiny">Orden provisional por horario y zona. Google Maps gestiona la navegación y el tráfico.</div><div id="route"></div></section>
+</main>
+<script>
+const U="https://hltoomzggocllpjdvopq.supabase.co",K="sb_publishable_L8gF1Z80Z3QOZcZZYy73ww_7_HZN8Yu",H={"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json"};
+let data=[],routeIds=[];
+const $=id=>document.getElementById(id), today=()=>new Date().toLocaleDateString("en-CA");
+function esc(x){return String(x??"").replaceAll("&","&amp;").replaceAll('"',"&quot;").replaceAll("<","&lt;").replaceAll(">","&gt;")}
+function mins(x){let a=(x||"00:00").split(":");return +a[0]*60+(+a[1]||0)}
+function zone(x){let s=(x||"").toLowerCase(),z=["sevilla","alcalá de guadaíra","mairena del alcor","dos hermanas","utrera","carmona","tomares","bormujos","castilleja","gelves","san juan","coria","rinconada","los palacios","espartinas","gines"];for(let q of z)if(s.includes(q))return q;return s.split(",").pop().trim()}
+async function api(path,opt={}){let r=await fetch(U+"/rest/v1/"+path,{...opt,headers:{...H,...(opt.headers||{})}});if(!r.ok)throw Error(await r.text());return r.status===204?null:r.json()}
+function msg(t,err=false){$("status").textContent=t;$("status").className="status show"+(err?" err":"");clearTimeout(window.tm);window.tm=setTimeout(()=>$("status").className="status",2500)}
+async function load(){try{data=await api("maquinas?select=*&order=nombre.asc");let v=await api("visitas?select=maquina_id,realizada&fecha=eq."+today());let m=new Map(v.map(x=>[x.maquina_id,x.realizada]));data.forEach(x=>{x.on=false;x.done=!!m.get(x.id)});$("start").value=localStorage.rvstart||"";render();msg("Datos sincronizados ✓")}catch(e){console.error(e);msg("No se pudo conectar con Supabase",true)}}
+function render(){let b=$("places");b.innerHTML=data.length?"":"<div class=tiny style='padding:15px'>Todavía no tienes máquinas.</div>";data.filter(x=>x.activa).forEach(p=>b.innerHTML+=`<div class=place><div class=topline><input class=check type=checkbox ${p.on?"checked":""} onchange="toggle('${p.id}',this.checked)"><div><div class=name>${esc(p.nombre)} ${p.done?"✅":""}</div><div class=addr>${esc(p.direccion)}</div><span class=time>${(p.hora_apertura||"09:00").slice(0,5)} – ${(p.hora_cierre||"18:00").slice(0,5)}</span></div></div><div class=btns><button class=gray onclick="edit('${p.id}')">✏️ Editar</button><button class=gray onclick="maps('${encodeURIComponent(p.direccion)}')">🧭 Ir</button><button class=red onclick="delp('${p.id}')">🗑️</button></div><div id=e${p.id} class=edit><input id=n${p.id} value="${esc(p.nombre)}"><input id=a${p.id} value="${esc(p.direccion)}"><div class=row><input id=f${p.id} type=time value="${(p.hora_apertura||"09:00").slice(0,5)}"><input id=t${p.id} type=time value="${(p.hora_cierre||"18:00").slice(0,5)}"></div><textarea id=o${p.id}>${esc(p.notas||"")}</textarea><button class=green onclick="save('${p.id}')">💾 Guardar</button></div></div>`);stats();next()}
+function stats(){let s=data.filter(x=>x.on),d=s.filter(x=>x.done).length;$("total").textContent=s.length;$("done").textContent=d;$("pending").textContent=s.length-d}
+async function toggle(id,v){let p=data.find(x=>x.id===id);p.on=v;if(!v)p.done=false;try{if(!v)await visit(id,false);render()}catch(e){msg("No se pudo guardar",true)}}
+function edit(id){$("e"+id).classList.toggle("open")}
+async function save(id){let p=data.find(x=>x.id===id);p.nombre=$("n"+id).value.trim();p.direccion=$("a"+id).value.trim();p.hora_apertura=$("f"+id).value;p.hora_cierre=$("t"+id).value;p.notas=$("o"+id).value.trim();if(!p.nombre||!p.direccion)return alert("Nombre y dirección son obligatorios.");try{await api("maquinas?id=eq."+id,{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({nombre:p.nombre,direccion:p.direccion,hora_apertura:p.hora_apertura,hora_cierre:p.hora_cierre,notas:p.notas})});render();msg("Guardado en la nube ✓")}catch(e){msg("No se pudo guardar",true)}}
+async function add(){try{let x=await api("maquinas",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({nombre:"Nueva máquina",direccion:"Dirección pendiente",hora_apertura:"09:00",hora_cierre:"18:00",notas:"",activa:true})});data.push(x[0]);render();$("e"+x[0].id).classList.add("open");msg("Máquina creada ✓")}catch(e){msg("No se pudo crear",true)}}
+async function delp(id){if(!confirm("¿Eliminar esta máquina?"))return;try{await api("maquinas?id=eq."+id,{method:"DELETE"});data=data.filter(x=>x.id!==id);render();msg("Máquina eliminada")}catch(e){msg("No se pudo eliminar",true)}}
+async function visit(id,done){await api("visitas",{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({maquina_id:id,fecha:today(),realizada:done})})}
+function pending(){let s=data.filter(x=>x.on&&!x.done&&x.direccion);s.sort((a,b)=>mins(a.hora_apertura)-mins(b.hora_apertura)||zone(a.direccion).localeCompare(zone(b.direccion)));return s}
+function organize(){routeIds=pending().map(x=>x.id);$("route").innerHTML=pending().map((p,i)=>`<div class=route><span class=num>${i+1}</span><b>${esc(p.nombre)}</b><div class=tiny>${esc(p.direccion)} · ${p.hora_apertura.slice(0,5)}–${p.hora_cierre.slice(0,5)}</div></div>`).join("");$("routeCard").style.display="block";next()}
+function current(){return routeIds.map(id=>data.find(x=>x.id===id)).find(x=>x&&x.on&&!x.done)||pending()[0]}
+function next(){let p=current();$("nextCard").style.display=p?"block":"none";if(p){$("nextName").textContent=p.nombre;$("nextAddr").textContent=p.direccion;$("nextTime").textContent=p.hora_apertura.slice(0,5)+" – "+p.hora_cierre.slice(0,5)}stats()}
+function navigateNext(){let p=current();if(p)maps(encodeURIComponent(p.direccion))}
+async function finishNext(){let p=current();if(!p)return;try{await visit(p.id,true);p.done=true;p.on=true;routeIds=routeIds.filter(x=>x!==p.id);render();organize();msg("Parada realizada ✓")}catch(e){msg("No se pudo guardar la visita",true)}}
+function maps(q){open("https://www.google.com/maps/search/?api=1&query="+q,"_blank")}
+function openRoute(){let s=pending();if(!s.length)return alert("Selecciona máquinas pendientes.");let o=encodeURIComponent($("start").value||s[0].direccion),d=encodeURIComponent(s.at(-1).direccion),w=s.slice(0,-1).map(x=>encodeURIComponent(x.direccion)).join("|"),u="https://www.google.com/maps/dir/?api=1&origin="+o+"&destination="+d+"&travelmode=driving";if(w)u+="&waypoints="+w;open(u,"_blank")}
+function clearChecks(){data.forEach(x=>{x.on=false;x.done=false});routeIds=[];render();$("routeCard").style.display="none"}
+$("start").onchange=()=>localStorage.rvstart=$("start").value;load();
+</script></body></html>
