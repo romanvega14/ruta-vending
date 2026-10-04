@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="theme-color" content="#17212b">
+<meta name="description" content="Organizador de rutas para máquinas vending">
+<title>Ruta Vending</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f7;color:#17212b;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.app{max-width:650px;margin:auto;padding:12px}.top{background:#17212b;color:#fff;border-radius:18px;padding:18px;margin-bottom:10px}
+h1{font-size:24px;margin:0 0 3px}.top p{margin:0;opacity:.8;font-size:13px}
+.card{background:#fff;border-radius:16px;padding:14px;margin:10px 0;box-shadow:0 2px 10px #0001}
+label{display:block;font-size:12px;font-weight:800;color:#65727e;margin:5px 0}input,textarea{width:100%;padding:11px;border:1px solid #d3dbe1;border-radius:10px;font-size:15px;background:#fff;color:#17212b}textarea{min-height:65px;resize:vertical}
+.row{display:flex;gap:8px}.row>*{flex:1}button{border:0;border-radius:11px;padding:11px 13px;font-weight:800;font-size:14px;background:#17212b;color:#fff}.green{background:#15865a}.secondary{background:#e9eef2;color:#17212b}.danger{background:#fff0f0;color:#a52d2d}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.actions button:first-child{grid-column:1/-1}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.stat{background:#f5f7f8;border-radius:12px;padding:10px;text-align:center}.stat b{font-size:21px;display:block}.tiny{font-size:11px;color:#65727e}
+.place{border:1px solid #e1e6ea;border-radius:14px;padding:11px;margin:8px 0}.placeTop{display:flex;gap:10px;align-items:flex-start}.check{width:23px;height:23px;flex:none}
+.name{font-weight:800}.addr{font-size:13px;color:#5f6d77;margin-top:2px}.time{display:inline-block;margin-top:7px;font-size:12px;background:#eef7f3;color:#13734d;padding:4px 7px;border-radius:7px}
+.placeBtns{display:flex;gap:6px;margin-top:9px}.placeBtns button{padding:8px 10px;font-size:12px}.edit{display:none;margin-top:9px}.edit.open{display:block}.edit input,.edit textarea{margin-bottom:6px}
+.next{border:2px solid #15865a;border-radius:14px;padding:13px;background:#f3fbf7}.next h2{margin:0 0 3px;font-size:18px}
+.routeItem{display:flex;gap:9px;align-items:center;padding:10px 0;border-bottom:1px solid #edf0f2}.num{width:29px;height:29px;border-radius:50%;background:#17212b;color:#fff;display:grid;place-items:center;font-weight:800;flex:none}.routeText{flex:1}.routeText small{display:block;color:#65727e}
+.status{font-size:12px;padding:6px 9px;border-radius:9px;background:#fff4d6;color:#795900;margin-bottom:8px;display:none}.status.show{display:block}
+@media(max-width:430px){.placeBtns{flex-wrap:wrap}}
+</style>
+</head>
+<body><div class="app">
+<header class="top"><h1>🚚 Ruta Vending</h1><p>Tus máquinas, tus horarios y tu ruta diaria.</p></header>
+
+<div id="status" class="status"></div>
+
+<div class="card">
+<label>📍 Punto de salida / base</label>
+<input id="start" placeholder="Ej.: Mairena del Alcor, Sevilla">
+<div class="actions" style="margin-top:9px">
+<button class="green" onclick="organize()">🧠 Organizar ruta de hoy</button>
+<button class="secondary" onclick="openRoute()">🗺️ Ruta completa</button>
+<button class="secondary" onclick="clearChecks()">Desmarcar todas</button>
+</div>
+</div>
+
+<div class="card">
+<div class="stats"><div class="stat"><b id="total">0</b><span class="tiny">seleccionadas</span></div><div class="stat"><b id="done">0</b><span class="tiny">realizadas</span></div><div class="stat"><b id="pending">0</b><span class="tiny">pendientes</span></div></div>
+</div>
+
+<div id="nextCard" class="card" style="display:none">
+<div class="next"><div class="tiny">SIGUIENTE PARADA</div><h2 id="nextName">—</h2><div id="nextAddr" class="tiny"></div><span id="nextTime" class="time"></span>
+<div class="row" style="margin-top:10px"><button class="green" onclick="navigateNext()">🧭 Ir allí</button><button class="secondary" onclick="finishNext()">✅ Terminada</button></div></div>
+</div>
+
+<div class="card">
+<div class="row" style="align-items:center"><div><strong>Mis máquinas</strong><div class="tiny">Se guardan al pulsar Guardar.</div></div><button class="green" onclick="add()">＋ Añadir</button></div>
+<div id="places"></div>
+</div>
+
+<div id="routeCard" class="card" style="display:none"><strong>📍 Recorrido de hoy</strong><div class="tiny" style="margin:4px 0 8px">Orden provisional por horario y zona. Google Maps calcula la navegación y el tráfico.</div><div id="route"></div></div>
+
+<div class="card"><div class="tiny"><b>Guardado:</b> esta versión usa una base local segura del navegador mientras preparamos la conexión a la base de datos online. No introduzcas todavía todas las direcciones reales.</div></div>
+</div>
+
+<script>
+const DB_KEY="ruta_vending_definitiva_v1";
+let data=[];
+let routeIds=[];
+let start="";
+
+function sample(){return [
+{id:crypto.randomUUID(),on:false,done:false,name:"Ejemplo Sevilla Centro",address:"Calle Sierpes, Sevilla",from:"09:00",to:"13:00",notes:""},
+{id:crypto.randomUUID(),on:false,done:false,name:"Ejemplo Alcalá",address:"Alcalá de Guadaíra, Sevilla",from:"10:00",to:"14:00",notes:""}
+]}
+function load(){
+ try{const x=JSON.parse(localStorage.getItem(DB_KEY)||"null");data=x?.data||sample();start=x?.start||""}
+ catch(e){data=sample();start=""}
+ document.getElementById("start").value=start;render()
+}
+function save(){
+ const payload={data,start:document.getElementById("start").value};
+ localStorage.setItem(DB_KEY,JSON.stringify(payload));
+ showStatus("Guardado correctamente ✓");
+}
+function showStatus(t){const e=document.getElementById("status");e.textContent=t;e.classList.add("show");setTimeout(()=>e.classList.remove("show"),1800)}
+function esc(s){return String(s).replaceAll("&","&amp;").replaceAll('"',"&quot;").replaceAll("<","&lt;")}
+function mins(t){let[a,b]=t.split(":").map(Number);return a*60+b}
+function zone(a){
+ let s=a.toLowerCase(),z=["sevilla","alcalá de guadaíra","mairena del alcor","dos hermanas","utrera","carmona","tomares","bormujos","castilleja","gelves","san juan de aznalfarache","coria del río","la rinconada","los palacios","espartinas","gines","mairena"];
+ for(let x of z)if(s.includes(x))return x;return s.split(",").slice(-1)[0].trim()
+}
+function render(){
+ document.getElementById("start").value=start;
+ const box=document.getElementById("places");box.innerHTML="";
+ data.forEach(p=>box.innerHTML+=`<div class="place">
+ <div class="placeTop"><input class="check" type="checkbox" ${p.on?"checked":""} onchange="change(${p.id},'on',this.checked)">
+ <div style="flex:1"><div class="name">${esc(p.name)} ${p.done?"✅":""}</div><div class="addr">${esc(p.address)}</div><span class="time">${p.from} – ${p.to}</span></div></div>
+ <div class="placeBtns"><button class="secondary" onclick="toggleEdit('${p.id}')">✏️ Editar</button><button class="secondary" onclick="go('${encodeURIComponent(p.address)}')">🧭 Ir</button><button class="danger" onclick="removeP('${p.id}')">🗑️</button></div>
+ <div class="edit" id="edit${p.id}"><input id="n${p.id}" value="${esc(p.name)}" placeholder="Nombre"><input id="a${p.id}" value="${esc(p.address)}" placeholder="Dirección"><div class="row"><input id="f${p.id}" type="time" value="${p.from}"><input id="t${p.id}" type="time" value="${p.to}"></div><textarea id="o${p.id}" placeholder="Notas">${esc(p.notes||"")}</textarea><button class="green" onclick="saveEdit('${p.id}')">💾 Guardar cambios</button></div></div>`);
+ updateStats();showNext()
+}
+function updateStats(){let s=data.filter(p=>p.on),d=s.filter(p=>p.done).length;total.textContent=s.length;done.textContent=d;pending.textContent=s.length-d}
+function change(id,k,v){let p=data.find(x=>x.id===id);p[k]=v;if(k==="on"&&!v)p.done=false;save();render()}
+function toggleEdit(id){document.getElementById("edit"+id).classList.toggle("open")}
+function saveEdit(id){let p=data.find(x=>x.id===id);p.name=document.getElementById("n"+id).value.trim();p.address=document.getElementById("a"+id).value.trim();p.from=document.getElementById("f"+id).value;p.to=document.getElementById("t"+id).value;p.notes=document.getElementById("o"+id).value.trim();save();render()}
+function add(){data.push({id:crypto.randomUUID(),on:false,done:false,name:"Nueva máquina",address:"",from:"09:00",to:"18:00",notes:""});save();render()}
+function removeP(id){if(confirm("¿Eliminar esta máquina?")){data=data.filter(x=>x.id!==id);save();render()}}
+function clearChecks(){data.forEach(x=>{x.on=false;x.done=false});routeIds=[];save();render();routeCard.style.display="none"}
+function sortedPending(){let s=data.filter(p=>p.on&&!p.done&&p.address.trim());s.sort((a,b)=>mins(a.from)-mins(b.from)||zone(a.address).localeCompare(zone(b.address)));return s}
+function organize(){routeIds=sortedPending().map(x=>x.id);let r=document.getElementById("route");r.innerHTML="";sortedPending().forEach((p,i)=>r.innerHTML+=`<div class="routeItem"><div class="num">${i+1}</div><div class="routeText"><b>${esc(p.name)}</b><small>${esc(p.address)}</small><span class="time">${p.from}–${p.to}</span></div><button class="secondary" onclick="go('${encodeURIComponent(p.address)}')">🧭</button></div>`);routeCard.style.display="block";showNext()}
+function current(){let p=routeIds.map(id=>data.find(x=>x.id===id)).find(x=>x&&x.on&&!x.done);return p||sortedPending()[0]}
+function showNext(){let p=current();if(!p){nextCard.style.display="none";return}nextCard.style.display="block";nextName.textContent=p.name;nextAddr.textContent=p.address;nextTime.textContent=p.from+" – "+p.to}
+function navigateNext(){let p=current();if(p)go(encodeURIComponent(p.address))}
+function finishNext(){let p=current();if(!p)return;p.done=true;save();routeIds=sortedPending().map(x=>x.id);render();organize()}
+function go(a){window.open("https://www.google.com/maps/search/?api=1&query="+a,"_blank")}
+function openRoute(){let s=sortedPending();if(!s.length){alert("Selecciona máquinas pendientes.");return}let origin=encodeURIComponent(document.getElementById("start").value||s[0].address),dest=encodeURIComponent(s[s.length-1].address),way=s.slice(0,-1).map(p=>encodeURIComponent(p.address)).join("|");let u="https://www.google.com/maps/dir/?api=1&origin="+origin+"&destination="+dest+"&travelmode=driving";if(way)u+="&waypoints="+way;window.open(u,"_blank")}
+document.getElementById("start").addEventListener("change",()=>{start=document.getElementById("start").value;save()});
+load();
+</script></body></html>
